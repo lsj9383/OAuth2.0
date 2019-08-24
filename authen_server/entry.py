@@ -70,12 +70,29 @@ class VerifyLoginHandler(tornado.web.RequestHandler):
         return self.write(json.dumps({"result": 0}))
 
 
+class GetUserInfoHandler(tornado.web.RequestHandler):
+    def get(self):
+        login_ticket_raw = self.get_secure_cookie("login_ticket")
+        if not login_ticket_raw:
+            return self.write(json.dumps({"result": 10002}))
+        login_ticket = decode_ticket(login_ticket_raw)
+        if not login_ticket:
+            return self.write(json.dumps({"result": 10003}))
+        username = login_ticket.get("username")
+        password = login_ticket.get("password")
+        expect_pwd = g_db.get(username)
+        if expect_pwd != password:
+            return self.write(json.dumps({"result": 10004}))
+        return self.write(json.dumps({"result": 0, "username":username}))
+
+
 if __name__ == "__main__":
     application = tornado.web.Application([
         (r"/", MainHandler),
         (r"/users", ListUsersHandler),
         (r"/login", LoginHandler),
         (r"/is_login", VerifyLoginHandler),
+        (r"/get_user_info", GetUserInfoHandler),
     ], cookie_secret="testtest")
     application.listen(8888)
     tornado.ioloop.IOLoop.current().start()

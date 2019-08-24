@@ -11,7 +11,10 @@
         * token接口，第三方用授权码换取access_token
         * 资源服务, 第三方使用access_token换取用户资源
         * PKCE, 用于保护授权码。
-    * 第三方
+    * 第三方应用
+        * 提供用户登陆入口
+        * 获取access_token
+        * 使用access_token到OAuth请求用户资源服务
 
 编写该服务的目的其实主要是熟悉tornado `^_^`
 

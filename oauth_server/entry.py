@@ -27,15 +27,16 @@ class MainHandler(tornado.web.RequestHandler):
 
 
 @tornado.gen.coroutine
-def verify_login_ticket(login_ticket):
+def get_user_info(login_ticket):
     http_client = tornado.httpclient.AsyncHTTPClient()
     headers = {"cookie": "login_ticket=%s;" % login_ticket}
-    url = "http://localhost:8888/is_login"
+    url = "http://localhost:8888/get_user_info"
     response = yield http_client.fetch(url, headers=headers)
     r = json.loads(response.body)
-    if r.get("result") == 0:
-        raise tornado.gen.Return(True)
-    raise tornado.gen.Return(False)
+    print(r)
+    if r.get("result") != 0:
+        raise tornado.gen.Return(None)
+    raise tornado.gen.Return(r.get("username"))
 
 
 class AuthorizeHandler(tornado.web.RequestHandler):
@@ -62,12 +63,13 @@ class AuthorizeHandler(tornado.web.RequestHandler):
                 return self.write('{"result":20004}')
         # 校验登陆态
         login_ticket = self.get_cookie("login_ticket")
-        valid_login_ticket = yield verify_login_ticket(login_ticket)
-        if not valid_login_ticket:
+        username = yield get_user_info(login_ticket)
+        if not username:
             return self.write('{"result":20005}')
         code_info = {
             "appid": appid,
             "scopes": scopes,
+            "username": username,
             "redirect_uri": redirect_uri,
             "expired_time": int(time.time()) + AUTHORIZE_CODE_EXPIRED,
         }
@@ -108,6 +110,7 @@ class TokenHandler(tornado.web.RequestHandler):
         token_info = {
             "appid": appid,
             "expired_time": current_time + TOKEN_EXPIRED,
+            "scopes": code_info.get("scopes", ["openid"])
         }
         token_raw = json.dumps(token_info)
         access_token = g_des.encrypt(token_raw)
@@ -117,7 +120,29 @@ class TokenHandler(tornado.web.RequestHandler):
             "token_type": "bearer",
         }
         self.write(json.dumps(resp))
-        
+
+
+def decode_access_token(token, scope):
+    token_raw = g_des.decrypt(token)
+    if not token_raw:
+        return None
+    token_info = json.loads(token_raw)
+    current_time = int(time.time())
+    expired_time = token_info.get("expired_time")
+    if current_time > expired_time:
+        return None
+    token_scopes = token_info.get("scopes", ["openid"])
+    if scope not in token_scopes:
+        return None
+    return token_info
+
+
+class GetOpenIdHandler(tornado.web.RequestHandler):
+    def get(self):
+        access_token = self.get_query_argument("access_token")
+        token_info = decode_access_token(access_token, "openid")
+        return self.write(json.dumps({"result":0,"username":token_info.get("username")}))
+
 
 class QueryAppHandler(tornado.web.RequestHandler):
     def get(self):
@@ -136,6 +161,7 @@ if __name__ == "__main__":
         (r"/query_app", QueryAppHandler),
         (r"/authorize", AuthorizeHandler),
         (r"/token", TokenHandler),
+        (r"/get_openid", GetOpenIdHandler),
     ])
     application.listen(8889)
     tornado.ioloop.IOLoop.current().start()
